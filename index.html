@@ -9,11 +9,21 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0a0f; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; padding: 12px; min-height: 100vh; }
   
+  .auth-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 90vh; }
+  .auth-screen h1 { color: #ffd700; margin-bottom: 20px; }
+  .auth-screen input { background: #14141f; border: 1px solid #333; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 16px; width: 250px; text-align: center; }
+  .auth-screen input:focus { outline: none; border-color: #ffd700; }
+  .auth-screen .error { color: #ff5252; margin-top: 10px; font-size: 14px; }
+  .auth-screen .hint { color: #666; margin-top: 20px; font-size: 12px; }
+  
+  .hidden { display: none !important; }
+  
   .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
   .header h1 { font-size: 1.4em; color: #ffd700; }
   .header .meta { font-size: 0.8em; color: #888; }
   .header .refresh { background: #222; border: 1px solid #444; color: #ccc; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8em; }
   .header .refresh:hover { background: #333; }
+  .header .logout { background: #331111; border: 1px solid #552222; color: #ff8888; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8em; margin-left: 8px; }
   
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 16px; }
   .card { background: #14141f; border: 1px solid #222; border-radius: 8px; padding: 12px; text-align: center; }
@@ -49,45 +59,98 @@
 </head>
 <body>
 
-<div class="header">
+<!-- Auth Screen -->
+<div id="authScreen" class="auth-screen">
   <h1>🐝 ATC Dashboard</h1>
-  <div class="meta" id="lastUpdate">Loading...</div>
-  <button class="refresh" onclick="loadData()">🔄 Refresh</button>
+  <input type="password" id="passInput" placeholder="Enter password" onkeypress="if(event.key==='Enter')checkPass()">
+  <div id="authError" class="error hidden">Wrong password</div>
+  <div class="hint">🔒 Protected</div>
 </div>
 
-<div class="cards" id="cards"><div class="loading">Loading data from Polymarket...</div></div>
-
-<div class="grid2">
-  <div class="panel">
-    <h3>🥧 Category Allocation</h3>
-    <div class="chart-container"><canvas id="categoryChart"></canvas></div>
+<!-- Dashboard (hidden until auth) -->
+<div id="dashboard" class="hidden">
+  <div class="header">
+    <h1>🐝 ATC Dashboard</h1>
+    <div class="meta" id="lastUpdate">Loading...</div>
+    <div>
+      <button class="refresh" onclick="loadData()">🔄 Refresh</button>
+      <button class="logout" onclick="logout()">🚪 Logout</button>
+    </div>
   </div>
-  <div class="panel">
-    <h3>📊 Win/Loss</h3>
-    <div class="chart-container"><canvas id="winLossChart"></canvas></div>
-  </div>
-</div>
 
-<div class="panel" style="margin-bottom: 16px;">
-  <h3>📊 Active Positions — sorted by resolution time</h3>
-  <div class="pos-table">
-    <table id="posTable">
-      <thead>
-        <tr>
-          <th>⏰ Resolution</th>
-          <th>Market</th>
-          <th>Outcome</th>
-          <th>Prob</th>
-          <th>Value</th>
-          <th>P&L</th>
-        </tr>
-      </thead>
-      <tbody id="posBody"></tbody>
-    </table>
+  <div class="cards" id="cards"><div class="loading">Loading data from Polymarket...</div></div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h3>🥧 Category Allocation</h3>
+      <div class="chart-container"><canvas id="categoryChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>📊 Win/Loss</h3>
+      <div class="chart-container"><canvas id="winLossChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom: 16px;">
+    <h3>📊 Active Positions — sorted by resolution time</h3>
+    <div class="pos-table">
+      <table id="posTable">
+        <thead>
+          <tr>
+            <th>⏰ Resolution</th>
+            <th>Market</th>
+            <th>Outcome</th>
+            <th>Prob</th>
+            <th>Value</th>
+            <th>P&L</th>
+          </tr>
+        </thead>
+        <tbody id="posBody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 <script>
+// Simple hash function
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Password hash (sha256 of "alli2026")
+const PASS_HASH = '8a5edab282632443219e051e4ade2d1d5bbc671c781051bf1437897cbdfea0f1';
+
+async function checkPass() {
+  const input = document.getElementById('passInput').value;
+  const hash = await sha256(input);
+  
+  if (hash === PASS_HASH) {
+    sessionStorage.setItem('atc_auth', 'true');
+    showDashboard();
+  } else {
+    document.getElementById('authError').classList.remove('hidden');
+    document.getElementById('passInput').value = '';
+  }
+}
+
+function logout() {
+  sessionStorage.removeItem('atc_auth');
+  location.reload();
+}
+
+function showDashboard() {
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+  loadData();
+}
+
+// Check if already authenticated
+if (sessionStorage.getItem('atc_auth') === 'true') {
+  showDashboard();
+}
+
+// Dashboard code
 const WALLET = '0xEE477AE132dc9b21e8f6C976E24fe9Dd9b49AD74';
 const TOTAL_DEPOSITED = 183.32;
 const USDC_E = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
@@ -152,7 +215,6 @@ async function loadData() {
     
     const positions = await posResp.json();
     
-    // Calculate stats
     let totalVal = 0, totalCost = 0, winners = 0, losers = 0;
     const categories = {};
     
@@ -166,7 +228,6 @@ async function loadData() {
       if (pnl > 0.01) winners++;
       else if (pnl < -0.01) losers++;
       
-      // Categorize
       const t = (p.title || '').toLowerCase();
       let cat = 'Other';
       if (t.includes('bitcoin') || t.includes('btc')) cat = 'BTC';
@@ -187,7 +248,6 @@ async function loadData() {
     const realPnl = portfolioValue - TOTAL_DEPOSITED;
     const pnlPct = (realPnl / TOTAL_DEPOSITED * 100).toFixed(1);
     
-    // Render cards
     document.getElementById('cards').innerHTML = `
       <div class="card">
         <div class="label">Portfolio</div>
@@ -216,7 +276,6 @@ async function loadData() {
       </div>
     `;
     
-    // Render positions table
     const sorted = [...positions].sort((a, b) => {
       if (!a.endDate) return 1;
       if (!b.endDate) return -1;
@@ -231,14 +290,10 @@ async function loadData() {
       const pnl = parseFloat(p.cashPnl || 0);
       const prob = parseFloat(p.curPrice || 0);
       const probPct = (prob * 100).toFixed(0);
-      const probColor = prob > 0.7 ? '#00e676' : prob > 0.4 ? '#ffd740' : '#ff5252';
       
       return `<tr>
-        <td>
-          <span class="countdown ${cd.cls}">${cd.text}</span>
-          <span style="color:#666; font-size:0.85em; margin-left:4px;">${time}</span>
-        </td>
-        <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis;">${(p.title||'').slice(0,60)}</td>
+        <td><span class="countdown ${cd.cls}">${cd.text}</span> <span style="color:#666;font-size:0.85em;">${time}</span></td>
+        <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;">${(p.title||'').slice(0,60)}</td>
         <td><b>${p.outcome || ''}</b></td>
         <td>${probPct}%</td>
         <td>$${val.toFixed(2)}</td>
@@ -246,13 +301,10 @@ async function loadData() {
       </tr>`;
     }).join('');
     
-    // Render charts
     renderCategoryChart(categories);
     renderWinLossChart(winners, losers, positions.length - winners - losers);
     
-    document.getElementById('lastUpdate').textContent = 
-      `Updated: ${new Date().toLocaleTimeString('pl-PL', { timeZone: 'Europe/Warsaw' })}`;
-      
+    document.getElementById('lastUpdate').textContent = `Updated: ${new Date().toLocaleTimeString('pl-PL', { timeZone: 'Europe/Warsaw' })}`;
   } catch (e) {
     document.getElementById('cards').innerHTML = `<div class="loading" style="color:#ff5252;">Error: ${e.message}</div>`;
   }
@@ -268,16 +320,8 @@ function renderCategoryChart(cats) {
   
   categoryChart = new Chart(ctx, {
     type: 'doughnut',
-    data: {
-      labels,
-      datasets: [{ data: values, backgroundColor: labels.map(l => colors[l] || '#888'), borderWidth: 0 }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right', labels: { color: '#ccc', font: { size: 10 }, padding: 6 } }
-      }
-    }
+    data: { labels, datasets: [{ data: values, backgroundColor: labels.map(l => colors[l] || '#888'), borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#ccc', font: { size: 10 } } } } }
   });
 }
 
@@ -287,22 +331,12 @@ function renderWinLossChart(wins, losses, neutral) {
   
   winLossChart = new Chart(ctx, {
     type: 'doughnut',
-    data: {
-      labels: ['Winning', 'Losing', 'Neutral'],
-      datasets: [{ data: [wins, losses, neutral], backgroundColor: ['#00e676', '#ff5252', '#888'], borderWidth: 0 }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right', labels: { color: '#ccc', font: { size: 10 }, padding: 6 } }
-      }
-    }
+    data: { labels: ['Winning', 'Losing', 'Neutral'], datasets: [{ data: [wins, losses, neutral], backgroundColor: ['#00e676', '#ff5252', '#888'], borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#ccc', font: { size: 10 } } } } }
   });
 }
 
-// Load on start and auto-refresh
-loadData();
-setInterval(loadData, 60000);
+setInterval(() => { if (sessionStorage.getItem('atc_auth') === 'true') loadData(); }, 60000);
 </script>
 </body>
 </html>

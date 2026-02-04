@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐝 ATC Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; padding: 12px; min-height: 100vh; }
+  
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+  .header h1 { font-size: 1.4em; color: #ffd700; }
+  .header .meta { font-size: 0.8em; color: #888; }
+  .header .refresh { background: #222; border: 1px solid #444; color: #ccc; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8em; }
+  .header .refresh:hover { background: #333; }
+  
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 16px; }
+  .card { background: #14141f; border: 1px solid #222; border-radius: 8px; padding: 12px; text-align: center; }
+  .card .label { font-size: 0.7em; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  .card .value { font-size: 1.5em; font-weight: bold; margin-top: 4px; }
+  .card .sub { font-size: 0.75em; color: #888; margin-top: 2px; }
+  .green { color: #00e676; }
+  .red { color: #ff5252; }
+  .gold { color: #ffd700; }
+  .blue { color: #448aff; }
+  
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+  
+  .panel { background: #14141f; border: 1px solid #222; border-radius: 8px; padding: 12px; }
+  .panel h3 { font-size: 0.9em; color: #ffd700; margin-bottom: 8px; border-bottom: 1px solid #222; padding-bottom: 4px; }
+  
+  .chart-container { position: relative; height: 200px; }
+  
+  table { width: 100%; border-collapse: collapse; font-size: 0.75em; }
+  th { text-align: left; color: #888; font-weight: 500; padding: 4px 6px; border-bottom: 1px solid #222; }
+  td { padding: 4px 6px; border-bottom: 1px solid #1a1a2e; }
+  tr:hover td { background: #1a1a2e; }
+  
+  .pos-table { max-height: 500px; overflow-y: auto; }
+  .countdown { font-size: 0.7em; padding: 2px 6px; border-radius: 3px; display: inline-block; }
+  .countdown.soon { background: #ff525233; color: #ff8a80; }
+  .countdown.today { background: #ffd70033; color: #ffd740; }
+  .countdown.later { background: #448aff22; color: #82b1ff; }
+  
+  .loading { text-align: center; padding: 40px; color: #888; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🐝 ATC Dashboard</h1>
+  <div class="meta" id="lastUpdate">Loading...</div>
+  <button class="refresh" onclick="loadData()">🔄 Refresh</button>
+</div>
+
+<div class="cards" id="cards"><div class="loading">Loading data from Polymarket...</div></div>
+
+<div class="grid2">
+  <div class="panel">
+    <h3>🥧 Category Allocation</h3>
+    <div class="chart-container"><canvas id="categoryChart"></canvas></div>
+  </div>
+  <div class="panel">
+    <h3>📊 Win/Loss</h3>
+    <div class="chart-container"><canvas id="winLossChart"></canvas></div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom: 16px;">
+  <h3>📊 Active Positions — sorted by resolution time</h3>
+  <div class="pos-table">
+    <table id="posTable">
+      <thead>
+        <tr>
+          <th>⏰ Resolution</th>
+          <th>Market</th>
+          <th>Outcome</th>
+          <th>Prob</th>
+          <th>Value</th>
+          <th>P&L</th>
+        </tr>
+      </thead>
+      <tbody id="posBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const WALLET = '0xEE477AE132dc9b21e8f6C976E24fe9Dd9b49AD74';
+const TOTAL_DEPOSITED = 183.32;
+const USDC_E = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+
+let categoryChart, winLossChart;
+
+function formatCountdown(endDate) {
+  if (!endDate) return { text: '?', cls: 'later' };
+  const now = Date.now();
+  const end = new Date(endDate).getTime();
+  const diff = end - now;
+  
+  if (diff <= 0) return { text: '⏳ RESOLVING', cls: 'soon' };
+  
+  const hours = diff / 3600000;
+  if (hours < 1) return { text: `${Math.floor(diff/60000)}m`, cls: 'soon' };
+  if (hours < 6) return { text: `${hours.toFixed(1)}h`, cls: 'soon' };
+  if (hours < 24) return { text: `${hours.toFixed(0)}h`, cls: 'today' };
+  const days = Math.floor(hours / 24);
+  return { text: `${days}d ${Math.floor(hours%24)}h`, cls: 'later' };
+}
+
+function formatTime(endDate) {
+  if (!endDate) return '';
+  const d = new Date(endDate);
+  return d.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function pnlColor(v) { return v >= 0 ? 'green' : 'red'; }
+function pnlSign(v) { return v >= 0 ? `+$${v.toFixed(2)}` : `-$${Math.abs(v).toFixed(2)}`; }
+
+async function getUSDCBalance() {
+  try {
+    const resp = await fetch('https://polygon-bor-rpc.publicnode.com', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_call',
+        params: [{
+          to: USDC_E,
+          data: '0x70a08231000000000000000000000000' + WALLET.slice(2).toLowerCase()
+        }, 'latest'],
+        id: 1
+      })
+    });
+    const { result } = await resp.json();
+    return parseInt(result, 16) / 1e6;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function loadData() {
+  try {
+    document.getElementById('cards').innerHTML = '<div class="loading">Loading...</div>';
+    
+    const [posResp, cash] = await Promise.all([
+      fetch(`https://data-api.polymarket.com/positions?user=${WALLET}&sizeThreshold=0`),
+      getUSDCBalance()
+    ]);
+    
+    const positions = await posResp.json();
+    
+    // Calculate stats
+    let totalVal = 0, totalCost = 0, winners = 0, losers = 0;
+    const categories = {};
+    
+    for (const p of positions) {
+      const val = parseFloat(p.currentValue || 0);
+      const cost = parseFloat(p.initialValue || 0);
+      const pnl = parseFloat(p.cashPnl || 0);
+      
+      totalVal += val;
+      totalCost += cost;
+      if (pnl > 0.01) winners++;
+      else if (pnl < -0.01) losers++;
+      
+      // Categorize
+      const t = (p.title || '').toLowerCase();
+      let cat = 'Other';
+      if (t.includes('bitcoin') || t.includes('btc')) cat = 'BTC';
+      else if (t.includes('ethereum') || t.includes('eth')) cat = 'ETH';
+      else if (t.includes('xrp')) cat = 'XRP';
+      else if (t.includes('solana') || t.includes('sol')) cat = 'SOL';
+      else if (t.includes('dota') || t.includes('counter-strike') || t.includes('league')) cat = 'Esport';
+      else if (t.match(/vs\.|thunder|spread|nuggets|timber|wild|pelicans|kings|cavaliers|raptors/)) cat = 'Sport';
+      else if (t.match(/temperature|weather/)) cat = 'Weather';
+      else if (t.match(/bank of|ecb|bartlett|democratic|republican/)) cat = 'Politics';
+      
+      if (!categories[cat]) categories[cat] = { value: 0, count: 0 };
+      categories[cat].value += val;
+      categories[cat].count++;
+    }
+    
+    const portfolioValue = totalVal + cash;
+    const realPnl = portfolioValue - TOTAL_DEPOSITED;
+    const pnlPct = (realPnl / TOTAL_DEPOSITED * 100).toFixed(1);
+    
+    // Render cards
+    document.getElementById('cards').innerHTML = `
+      <div class="card">
+        <div class="label">Portfolio</div>
+        <div class="value gold">$${portfolioValue.toFixed(2)}</div>
+        <div class="sub">deposited: $${TOTAL_DEPOSITED}</div>
+      </div>
+      <div class="card">
+        <div class="label">Cash</div>
+        <div class="value blue">$${cash.toFixed(2)}</div>
+        <div class="sub">USDC.e</div>
+      </div>
+      <div class="card">
+        <div class="label">Total P&L</div>
+        <div class="value ${pnlColor(realPnl)}">${pnlSign(realPnl)}</div>
+        <div class="sub">${pnlPct}%</div>
+      </div>
+      <div class="card">
+        <div class="label">Positions</div>
+        <div class="value">${positions.length}</div>
+        <div class="sub">🟢${winners} 🔴${losers}</div>
+      </div>
+      <div class="card">
+        <div class="label">Position Value</div>
+        <div class="value">$${totalVal.toFixed(2)}</div>
+        <div class="sub">cost: $${totalCost.toFixed(2)}</div>
+      </div>
+    `;
+    
+    // Render positions table
+    const sorted = [...positions].sort((a, b) => {
+      if (!a.endDate) return 1;
+      if (!b.endDate) return -1;
+      return new Date(a.endDate) - new Date(b.endDate);
+    });
+    
+    const tbody = document.getElementById('posBody');
+    tbody.innerHTML = sorted.map(p => {
+      const cd = formatCountdown(p.endDate);
+      const time = formatTime(p.endDate);
+      const val = parseFloat(p.currentValue || 0);
+      const pnl = parseFloat(p.cashPnl || 0);
+      const prob = parseFloat(p.curPrice || 0);
+      const probPct = (prob * 100).toFixed(0);
+      const probColor = prob > 0.7 ? '#00e676' : prob > 0.4 ? '#ffd740' : '#ff5252';
+      
+      return `<tr>
+        <td>
+          <span class="countdown ${cd.cls}">${cd.text}</span>
+          <span style="color:#666; font-size:0.85em; margin-left:4px;">${time}</span>
+        </td>
+        <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis;">${(p.title||'').slice(0,60)}</td>
+        <td><b>${p.outcome || ''}</b></td>
+        <td>${probPct}%</td>
+        <td>$${val.toFixed(2)}</td>
+        <td class="${pnlColor(pnl)}">${pnlSign(pnl)}</td>
+      </tr>`;
+    }).join('');
+    
+    // Render charts
+    renderCategoryChart(categories);
+    renderWinLossChart(winners, losers, positions.length - winners - losers);
+    
+    document.getElementById('lastUpdate').textContent = 
+      `Updated: ${new Date().toLocaleTimeString('pl-PL', { timeZone: 'Europe/Warsaw' })}`;
+      
+  } catch (e) {
+    document.getElementById('cards').innerHTML = `<div class="loading" style="color:#ff5252;">Error: ${e.message}</div>`;
+  }
+}
+
+function renderCategoryChart(cats) {
+  const labels = Object.keys(cats);
+  const values = labels.map(k => cats[k].value);
+  const colors = { BTC: '#f7931a', ETH: '#627eea', XRP: '#00aae4', SOL: '#9945ff', Sport: '#ff6b35', Esport: '#e040fb', Weather: '#4fc3f7', Politics: '#ab47bc', Other: '#888' };
+  
+  const ctx = document.getElementById('categoryChart').getContext('2d');
+  if (categoryChart) categoryChart.destroy();
+  
+  categoryChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: labels.map(l => colors[l] || '#888'), borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#ccc', font: { size: 10 }, padding: 6 } }
+      }
+    }
+  });
+}
+
+function renderWinLossChart(wins, losses, neutral) {
+  const ctx = document.getElementById('winLossChart').getContext('2d');
+  if (winLossChart) winLossChart.destroy();
+  
+  winLossChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Winning', 'Losing', 'Neutral'],
+      datasets: [{ data: [wins, losses, neutral], backgroundColor: ['#00e676', '#ff5252', '#888'], borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#ccc', font: { size: 10 }, padding: 6 } }
+      }
+    }
+  });
+}
+
+// Load on start and auto-refresh
+loadData();
+setInterval(loadData, 60000);
+</script>
+</body>
+</html>

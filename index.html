@@ -78,7 +78,7 @@
       <thead>
         <tr>
           <th>Market</th>
-          <th>Dir</th>
+          <th>Bet</th>
           <th>Asset @ Entry</th>
           <th>Asset Now</th>
           <th>Trend</th>
@@ -235,7 +235,7 @@ async function renderCryptoSection(positions) {
   
   tbody.innerHTML = cryptoPos.map(p => {
     const asset = detectCryptoAsset(p.title);
-    const dir = detectDirection(p.title, p.outcome);
+    const outcome = p.outcome || '';
     const entryAssetPrice = ENTRY_PRICES[asset];
     const curAssetPrice = prices[asset]?.price || 0;
     const assetTrend = curAssetPrice < entryAssetPrice ? '📉' : '📈';
@@ -251,7 +251,23 @@ async function renderCryptoSection(positions) {
     totalValue += value;
     totalPnl += pnl;
     
-    const dirColor = dir === 'SHORT' ? '#ff8a80' : dir === 'LONG' ? '#69f0ae' : '#888';
+    // Outcome styling - show actual bet direction with emoji
+    const outcomeLC = outcome.toLowerCase();
+    let betDisplay, betColor, betEmoji;
+    if (outcomeLC === 'up' || outcomeLC === 'yes') {
+      betDisplay = outcome.toUpperCase();
+      betColor = '#69f0ae';
+      betEmoji = '📈';
+    } else if (outcomeLC === 'down' || outcomeLC === 'no') {
+      betDisplay = outcome.toUpperCase();
+      betColor = '#ff8a80';
+      betEmoji = '📉';
+    } else {
+      betDisplay = outcome;
+      betColor = '#888';
+      betEmoji = '';
+    }
+    
     const pnlColor = pnl >= 0 ? '#00e676' : '#ff5252';
     const assetColor = asset === 'BTC' ? '#f7931a' : asset === 'ETH' ? '#627eea' : asset === 'SOL' ? '#9945ff' : '#00aae4';
     
@@ -261,7 +277,7 @@ async function renderCryptoSection(positions) {
     
     return `<tr>
       <td style="max-width:180px; font-size:0.85em;">${shortTitle}</td>
-      <td><span style="color:${dirColor}; font-weight:bold;">${dir}</span></td>
+      <td><span style="color:${betColor}; font-weight:bold;">${betEmoji} ${betDisplay}</span></td>
       <td style="color:${assetColor};">$${entryAssetPrice.toLocaleString()}</td>
       <td style="color:${assetColor};">$${curAssetPrice.toLocaleString()}</td>
       <td>${assetTrend} <span style="color:${curAssetPrice < entryAssetPrice ? '#ff5252' : '#00e676'}">${assetTrendPct}%</span></td>

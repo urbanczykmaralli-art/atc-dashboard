@@ -60,6 +60,8 @@
   .status-losing { background: #ff525233; color: #ff8a80; }
   .status-pending { background: #ffd70033; color: #ffd740; }
   .status-resolved { background: #448aff22; color: #82b1ff; }
+  
+  #betsTable a:hover { color: #ffd700; text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -567,6 +569,13 @@ async function renderBetsTable(positions) {
     else if (now > entry * 1.1) status = 'winning';
     else if (now < entry * 0.9) status = 'losing';
     
+    // Build Polymarket URL
+    const polyUrl = a.eventSlug && a.slug 
+      ? `https://polymarket.com/event/${a.eventSlug}/${a.slug}`
+      : a.eventSlug 
+        ? `https://polymarket.com/event/${a.eventSlug}`
+        : null;
+    
     return {
       timestamp,
       entryTime: new Date(timestamp),
@@ -581,7 +590,8 @@ async function renderBetsTable(positions) {
       value,
       pnl,
       status,
-      txHash: a.transactionHash
+      txHash: a.transactionHash,
+      polyUrl
     };
   });
   
@@ -636,9 +646,13 @@ function applyFilterAndSort() {
     
     const pnlColor = b.pnl >= 0 ? '#00e676' : '#ff5252';
     
+    const marketLink = b.polyUrl 
+      ? `<a href="${b.polyUrl}" target="_blank" style="color:#82b1ff; text-decoration:none;" title="${b.title}">${b.market} 🔗</a>`
+      : `<span title="${b.title}">${b.market}</span>`;
+    
     return `<tr>
       <td style="font-size:0.85em;" title="${exactTime}"><span style="color:#ffd700;">${timeAgo}</span></td>
-      <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="${b.title}">${b.market}</td>
+      <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis;">${marketLink}</td>
       <td style="color:${outcomeColor}; font-weight:bold;">${outcomeEmoji} ${b.outcome} <span style="color:#888; font-weight:normal;">${(b.entry * 100).toFixed(0)}¢</span></td>
       <td style="color:#888;">${b.size.toFixed(1)}</td>
       <td>${(b.now * 100).toFixed(0)}¢</td>

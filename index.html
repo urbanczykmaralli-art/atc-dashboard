@@ -8,21 +8,13 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0a0f; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; padding: 12px; min-height: 100vh; }
-  .auth-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 90vh; }
-  .auth-screen h1 { color: #ffd700; margin-bottom: 20px; }
-  .auth-screen input { background: #14141f; border: 1px solid #333; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 16px; width: 250px; text-align: center; margin-bottom: 15px; }
-  .auth-screen input:focus { outline: none; border-color: #ffd700; }
-  .auth-screen button { background: #ffd700; color: #000; border: none; padding: 12px 40px; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: bold; }
-  .auth-screen button:hover { background: #ffed4a; }
-  .auth-screen .error { color: #ff5252; margin-top: 10px; font-size: 14px; }
-  .auth-screen .hint { color: #666; margin-top: 20px; font-size: 12px; }
-  .hidden { display: none !important; }
+  
   .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
   .header h1 { font-size: 1.4em; color: #ffd700; }
   .header .meta { font-size: 0.8em; color: #888; }
   .header .refresh { background: #222; border: 1px solid #444; color: #ccc; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8em; }
   .header .refresh:hover { background: #333; }
-  .header .logout { background: #331111; border: 1px solid #552222; color: #ff8888; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8em; margin-left: 8px; }
+  
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 16px; }
   .card { background: #14141f; border: 1px solid #222; border-radius: 8px; padding: 12px; text-align: center; }
   .card .label { font-size: 0.7em; color: #888; text-transform: uppercase; letter-spacing: 1px; }
@@ -32,97 +24,431 @@
   .red { color: #ff5252; }
   .gold { color: #ffd700; }
   .blue { color: #448aff; }
+  
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
   @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+  
   .panel { background: #14141f; border: 1px solid #222; border-radius: 8px; padding: 12px; }
   .panel h3 { font-size: 0.9em; color: #ffd700; margin-bottom: 8px; border-bottom: 1px solid #222; padding-bottom: 4px; }
+  
   .chart-container { position: relative; height: 200px; }
+  
   table { width: 100%; border-collapse: collapse; font-size: 0.75em; }
   th { text-align: left; color: #888; font-weight: 500; padding: 4px 6px; border-bottom: 1px solid #222; }
   td { padding: 4px 6px; border-bottom: 1px solid #1a1a2e; }
   tr:hover td { background: #1a1a2e; }
+  
   .pos-table { max-height: 500px; overflow-y: auto; }
   .countdown { font-size: 0.7em; padding: 2px 6px; border-radius: 3px; display: inline-block; }
   .countdown.soon { background: #ff525233; color: #ff8a80; }
   .countdown.today { background: #ffd70033; color: #ffd740; }
   .countdown.later { background: #448aff22; color: #82b1ff; }
+  
   .loading { text-align: center; padding: 40px; color: #888; }
 </style>
 </head>
 <body>
-<div id="authScreen" class="auth-screen">
-  <h1>🐝 ATC Dashboard</h1>
-  <input type="password" id="passInput" placeholder="Enter password" onkeypress="if(event.key==='Enter')checkPass()">
-  <button onclick="checkPass()">🔓 Login</button>
-  <div id="authError" class="error hidden">Wrong password</div>
-  <div class="hint">🔒 Protected</div>
-</div>
-<div id="dashboard" class="hidden">
-  <div class="header">
-    <h1>🐝 ATC Dashboard</h1>
-    <div class="meta" id="lastUpdate">Loading...</div>
-    <div>
-      <button class="refresh" onclick="loadData()">🔄 Refresh</button>
-      <button class="logout" onclick="logout()">🚪 Logout</button>
-    </div>
-  </div>
-  <div class="cards" id="cards"><div class="loading">Loading...</div></div>
-  <div class="grid2">
-    <div class="panel">
-      <h3>🥧 Category Allocation</h3>
-      <div class="chart-container"><canvas id="categoryChart"></canvas></div>
-    </div>
-    <div class="panel">
-      <h3>📊 Win/Loss</h3>
-      <div class="chart-container"><canvas id="winLossChart"></canvas></div>
-    </div>
-  </div>
-  <div class="panel" style="margin-bottom: 16px;">
-    <h3>📊 Active Positions — sorted by resolution time</h3>
-    <div class="pos-table">
-      <table><thead><tr><th>⏰ Resolution</th><th>Market</th><th>Outcome</th><th>Prob</th><th>Value</th><th>P&L</th></tr></thead><tbody id="posBody"></tbody></table>
-    </div>
-  </div>
-</div>
-<script>
-// Simple XOR-based password check (obfuscated)
-const _k = [0x15,0x08,0x02,0x11,0x44,0x46,0x44,0x42];
-const _p = 'alli2026';
-function checkPass() {
-  const input = document.getElementById('passInput').value;
-  let match = input.length === _p.length;
-  for (let i = 0; i < _p.length && match; i++) {
-    match = (input.charCodeAt(i) ^ _k[i % _k.length]) === (_p.charCodeAt(i) ^ _k[i % _k.length]);
-  }
-  if (input === atob('YWxsaTIwMjY=')) {
-    sessionStorage.setItem('atc_auth', '1');
-    showDashboard();
-  } else {
-    document.getElementById('authError').classList.remove('hidden');
-    document.getElementById('passInput').value = '';
-  }
-}
-function logout() { sessionStorage.removeItem('atc_auth'); location.reload(); }
-function showDashboard() {
-  document.getElementById('authScreen').classList.add('hidden');
-  document.getElementById('dashboard').classList.remove('hidden');
-  loadData();
-}
-if (sessionStorage.getItem('atc_auth') === '1') showDashboard();
 
-const WALLET='0xEE477AE132dc9b21e8f6C976E24fe9Dd9b49AD74';
-const TOTAL_DEPOSITED=183.32;
-const USDC_E='0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
-let categoryChart,winLossChart;
-function formatCountdown(e){if(!e)return{text:'?',cls:'later'};let es=e;if(e.length===10)es=e+'T23:59:59Z';const n=Date.now(),d=new Date(es).getTime()-n;if(d<=0)return{text:'⏳ RESOLVING',cls:'soon'};const h=d/3600000;if(h<1)return{text:`${Math.floor(d/60000)}m`,cls:'soon'};if(h<6)return{text:`${h.toFixed(1)}h`,cls:'soon'};if(h<24)return{text:`${h.toFixed(0)}h`,cls:'today'};return{text:`${Math.floor(h/24)}d`,cls:'later'};}
-function formatTime(e){if(!e)return'';return new Date(e).toLocaleString('pl-PL',{timeZone:'Europe/Warsaw',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}
-function pnlColor(v){return v>=0?'green':'red';}
-function pnlSign(v){return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
-async function getUSDCBalance(){try{const r=await fetch('https://polygon-bor-rpc.publicnode.com',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',method:'eth_call',params:[{to:USDC_E,data:'0x70a08231000000000000000000000000'+WALLET.slice(2).toLowerCase()},'latest'],id:1})});const{result}=await r.json();return parseInt(result,16)/1e6;}catch(e){return 0;}}
-async function loadData(){try{document.getElementById('cards').innerHTML='<div class="loading">Loading...</div>';const[posResp,cash]=await Promise.all([fetch(`https://data-api.polymarket.com/positions?user=${WALLET}&sizeThreshold=0`),getUSDCBalance()]);const positions=await posResp.json();let totalVal=0,totalCost=0,winners=0,losers=0,resolvingSum=0,resolvingCount=0;const now=Date.now();const categories={};for(const p of positions){const val=parseFloat(p.currentValue||0);const cost=parseFloat(p.initialValue||0);const pnl=parseFloat(p.cashPnl||0);totalVal+=val;totalCost+=cost;if(pnl>0.01)winners++;else if(pnl<-0.01)losers++;if(p.endDate&&new Date(p.endDate.length===10?p.endDate+'T23:59:59Z':p.endDate).getTime()<=now){resolvingSum+=val;resolvingCount++;}const t=(p.title||'').toLowerCase();let cat='Other';if(t.includes('bitcoin')||t.includes('btc'))cat='BTC';else if(t.includes('ethereum')||t.includes('eth'))cat='ETH';else if(t.includes('xrp'))cat='XRP';else if(t.includes('solana')||t.includes('sol'))cat='SOL';else if(t.includes('dota')||t.includes('counter-strike'))cat='Esport';else if(t.match(/vs\.|thunder|spread|nuggets/))cat='Sport';else if(t.match(/temperature|weather/))cat='Weather';else if(t.match(/bank of|ecb|bartlett/))cat='Politics';if(!categories[cat])categories[cat]={value:0,count:0};categories[cat].value+=val;categories[cat].count++;}const portfolioValue=totalVal+cash;const realPnl=portfolioValue-TOTAL_DEPOSITED;const pnlPct=(realPnl/TOTAL_DEPOSITED*100).toFixed(1);document.getElementById('cards').innerHTML=`<div class="card"><div class="label">Portfolio</div><div class="value gold">$${portfolioValue.toFixed(2)}</div><div class="sub">deposited: $${TOTAL_DEPOSITED}</div></div><div class="card"><div class="label">Cash</div><div class="value blue">$${cash.toFixed(2)}</div><div class="sub">USDC.e</div></div><div class="card"><div class="label">Total P&L</div><div class="value ${pnlColor(realPnl)}">${pnlSign(realPnl)}</div><div class="sub">${pnlPct}%</div></div><div class="card"><div class="label">Positions</div><div class="value">${positions.length}</div><div class="sub">🟢${winners} 🔴${losers}</div></div><div class="card"><div class="label">Position Value</div><div class="value">$${totalVal.toFixed(2)}</div><div class="sub">cost: $${totalCost.toFixed(2)}</div></div><div class="card"><div class="label">🔄 Resolving</div><div class="value gold">$${resolvingSum.toFixed(2)}</div><div class="sub">${resolvingCount} positions</div></div>`;const sorted=[...positions].sort((a,b)=>{if(!a.endDate)return 1;if(!b.endDate)return -1;return new Date(a.endDate)-new Date(b.endDate);});document.getElementById('posBody').innerHTML=sorted.map(p=>{const cd=formatCountdown(p.endDate);const time=formatTime(p.endDate);const val=parseFloat(p.currentValue||0);const pnl=parseFloat(p.cashPnl||0);const prob=parseFloat(p.curPrice||0);return`<tr><td><span class="countdown ${cd.cls}">${cd.text}</span> <span style="color:#666;font-size:0.85em;">${time}</span></td><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;">${(p.title||'').slice(0,60)}</td><td><b>${p.outcome||''}</b></td><td>${(prob*100).toFixed(0)}%</td><td>$${val.toFixed(2)}</td><td class="${pnlColor(pnl)}">${pnlSign(pnl)}</td></tr>`;}).join('');renderCategoryChart(categories);renderWinLossChart(winners,losers,positions.length-winners-losers);document.getElementById('lastUpdate').textContent=`Updated: ${new Date().toLocaleTimeString('pl-PL',{timeZone:'Europe/Warsaw'})}`;}catch(e){document.getElementById('cards').innerHTML=`<div class="loading" style="color:#ff5252;">Error: ${e.message}</div>`;}}
-function renderCategoryChart(cats){const labels=Object.keys(cats);const values=labels.map(k=>cats[k].value);const colors={BTC:'#f7931a',ETH:'#627eea',XRP:'#00aae4',SOL:'#9945ff',Sport:'#ff6b35',Esport:'#e040fb',Weather:'#4fc3f7',Politics:'#ab47bc',Other:'#888'};const ctx=document.getElementById('categoryChart').getContext('2d');if(categoryChart)categoryChart.destroy();categoryChart=new Chart(ctx,{type:'doughnut',data:{labels,datasets:[{data:values,backgroundColor:labels.map(l=>colors[l]||'#888'),borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#ccc',font:{size:10}}}}}});}
-function renderWinLossChart(wins,losses,neutral){const ctx=document.getElementById('winLossChart').getContext('2d');if(winLossChart)winLossChart.destroy();winLossChart=new Chart(ctx,{type:'doughnut',data:{labels:['Winning','Losing','Neutral'],datasets:[{data:[wins,losses,neutral],backgroundColor:['#00e676','#ff5252','#888'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#ccc',font:{size:10}}}}}});}
-setInterval(()=>{if(sessionStorage.getItem('atc_auth')==='1')loadData();},60000);
+<div class="header">
+  <h1>🐝 ATC Dashboard</h1>
+  <div class="meta" id="lastUpdate">Loading...</div>
+  <button class="refresh" onclick="loadData()">🔄 Refresh</button>
+</div>
+
+<div class="cards" id="cards"><div class="loading">Loading data from Polymarket...</div></div>
+
+<div class="grid2">
+  <div class="panel">
+    <h3>🥧 Category Allocation</h3>
+    <div class="chart-container"><canvas id="categoryChart"></canvas></div>
+  </div>
+  <div class="panel">
+    <h3>📊 Win/Loss</h3>
+    <div class="chart-container"><canvas id="winLossChart"></canvas></div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom: 16px;">
+  <h3>💰 Crypto Positions — Live Prices</h3>
+  <div id="cryptoPrices" style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; font-size: 0.85em;">
+    <span>Loading prices...</span>
+  </div>
+  <div class="pos-table" style="max-height: 300px;">
+    <table id="cryptoTable">
+      <thead>
+        <tr>
+          <th>Market</th>
+          <th>Dir</th>
+          <th>Asset @ Entry</th>
+          <th>Asset Now</th>
+          <th>Trend</th>
+          <th>Bet Entry</th>
+          <th>Bet Now</th>
+          <th>Invested</th>
+          <th>Value</th>
+          <th>P/L</th>
+        </tr>
+      </thead>
+      <tbody id="cryptoBody"></tbody>
+    </table>
+  </div>
+  <div id="cryptoSummary" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333; font-size: 0.85em;"></div>
+</div>
+
+<div class="panel" style="margin-bottom: 16px;">
+  <h3>📊 Active Positions — sorted by resolution time</h3>
+  <div class="pos-table">
+    <table id="posTable">
+      <thead>
+        <tr>
+          <th>⏰ Resolution</th>
+          <th>Market</th>
+          <th>Outcome</th>
+          <th>Prob</th>
+          <th>Value</th>
+          <th>P&L</th>
+        </tr>
+      </thead>
+      <tbody id="posBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const WALLET = '0xEE477AE132dc9b21e8f6C976E24fe9Dd9b49AD74';
+const TOTAL_DEPOSITED = 183.32;
+const USDC_E = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+
+// Estimated prices at purchase (Feb 4, 2026 evening ~20:00 UTC)
+const ENTRY_PRICES = {
+  BTC: 73500,  // ~$73-74K on Feb 4 evening
+  ETH: 2650,   // ~$2,600-2,700 on Feb 4 evening
+  SOL: 190,    // ~$180-200 on Feb 4 evening
+  XRP: 2.40    // ~$2.30-2.50 on Feb 4 evening
+};
+
+async function getCryptoPrices() {
+  try {
+    const resp = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,ripple&vs_currencies=usd&include_24hr_change=true');
+    const data = await resp.json();
+    return {
+      BTC: { price: data.bitcoin.usd, change: data.bitcoin.usd_24h_change },
+      ETH: { price: data.ethereum.usd, change: data.ethereum.usd_24h_change },
+      SOL: { price: data.solana.usd, change: data.solana.usd_24h_change },
+      XRP: { price: data.ripple.usd, change: data.ripple.usd_24h_change }
+    };
+  } catch (e) {
+    return { BTC: { price: 0, change: 0 }, ETH: { price: 0, change: 0 }, SOL: { price: 0, change: 0 }, XRP: { price: 0, change: 0 } };
+  }
+}
+
+function detectCryptoAsset(title) {
+  const t = title.toLowerCase();
+  if (t.includes('bitcoin') || t.includes('btc')) return 'BTC';
+  if (t.includes('ethereum') || t.includes('eth')) return 'ETH';
+  if (t.includes('solana') || t.includes('sol')) return 'SOL';
+  if (t.includes('xrp')) return 'XRP';
+  return null;
+}
+
+function detectDirection(title, outcome) {
+  const t = title.toLowerCase();
+  const o = outcome.toLowerCase();
+  if (o === 'down' || o === 'no') return 'SHORT';
+  if (o === 'up' || o === 'yes') return 'LONG';
+  return o.toUpperCase();
+}
+
+let categoryChart, winLossChart;
+
+function formatCountdown(endDate) {
+  if (!endDate) return { text: '?', cls: 'later' };
+  const now = Date.now();
+  const end = new Date(endDate).getTime();
+  const diff = end - now;
+  
+  if (diff <= 0) return { text: '⏳ RESOLVING', cls: 'soon' };
+  
+  const hours = diff / 3600000;
+  if (hours < 1) return { text: `${Math.floor(diff/60000)}m`, cls: 'soon' };
+  if (hours < 6) return { text: `${hours.toFixed(1)}h`, cls: 'soon' };
+  if (hours < 24) return { text: `${hours.toFixed(0)}h`, cls: 'today' };
+  const days = Math.floor(hours / 24);
+  return { text: `${days}d ${Math.floor(hours%24)}h`, cls: 'later' };
+}
+
+function formatTime(endDate) {
+  if (!endDate) return '';
+  const d = new Date(endDate);
+  return d.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function pnlColor(v) { return v >= 0 ? 'green' : 'red'; }
+function pnlSign(v) { return v >= 0 ? `+$${v.toFixed(2)}` : `-$${Math.abs(v).toFixed(2)}`; }
+
+async function getUSDCBalance() {
+  try {
+    const resp = await fetch('https://polygon-bor-rpc.publicnode.com', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_call',
+        params: [{
+          to: USDC_E,
+          data: '0x70a08231000000000000000000000000' + WALLET.slice(2).toLowerCase()
+        }, 'latest'],
+        id: 1
+      })
+    });
+    const { result } = await resp.json();
+    return parseInt(result, 16) / 1e6;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function renderCryptoSection(positions) {
+  const prices = await getCryptoPrices();
+  
+  // Render price bar
+  const priceBar = document.getElementById('cryptoPrices');
+  priceBar.innerHTML = Object.entries(prices).map(([sym, data]) => {
+    const entryP = ENTRY_PRICES[sym];
+    const curP = data.price;
+    const pctFromEntry = ((curP - entryP) / entryP * 100).toFixed(1);
+    const trendColor = curP < entryP ? '#ff5252' : '#00e676';
+    const trendIcon = curP < entryP ? '📉' : '📈';
+    return `<span style="background:#1a1a2e; padding:6px 12px; border-radius:6px;">
+      <b style="color:${sym === 'BTC' ? '#f7931a' : sym === 'ETH' ? '#627eea' : sym === 'SOL' ? '#9945ff' : '#00aae4'}">${sym}</b>
+      $${curP.toLocaleString()} 
+      <span style="color:${trendColor}; font-size:0.85em;">${trendIcon} ${pctFromEntry}% vs entry</span>
+    </span>`;
+  }).join('');
+  
+  // Filter crypto positions
+  const cryptoPos = positions.filter(p => detectCryptoAsset(p.title));
+  
+  // Render crypto table
+  const tbody = document.getElementById('cryptoBody');
+  let totalInvested = 0, totalValue = 0, totalPnl = 0;
+  
+  tbody.innerHTML = cryptoPos.map(p => {
+    const asset = detectCryptoAsset(p.title);
+    const dir = detectDirection(p.title, p.outcome);
+    const entryAssetPrice = ENTRY_PRICES[asset];
+    const curAssetPrice = prices[asset]?.price || 0;
+    const assetTrend = curAssetPrice < entryAssetPrice ? '📉' : '📈';
+    const assetTrendPct = ((curAssetPrice - entryAssetPrice) / entryAssetPrice * 100).toFixed(1);
+    
+    const betEntry = parseFloat(p.avgPrice || 0);
+    const betNow = parseFloat(p.curPrice || 0);
+    const invested = parseFloat(p.initialValue || 0);
+    const value = parseFloat(p.currentValue || 0);
+    const pnl = parseFloat(p.cashPnl || 0);
+    
+    totalInvested += invested;
+    totalValue += value;
+    totalPnl += pnl;
+    
+    const dirColor = dir === 'SHORT' ? '#ff8a80' : dir === 'LONG' ? '#69f0ae' : '#888';
+    const pnlColor = pnl >= 0 ? '#00e676' : '#ff5252';
+    const assetColor = asset === 'BTC' ? '#f7931a' : asset === 'ETH' ? '#627eea' : asset === 'SOL' ? '#9945ff' : '#00aae4';
+    
+    // Short title
+    let shortTitle = p.title.replace(/Bitcoin|Ethereum|Solana/gi, '').replace(/Up or Down/gi, 'U/D').trim();
+    if (shortTitle.length > 30) shortTitle = shortTitle.slice(0, 30) + '...';
+    
+    return `<tr>
+      <td style="max-width:180px; font-size:0.85em;">${shortTitle}</td>
+      <td><span style="color:${dirColor}; font-weight:bold;">${dir}</span></td>
+      <td style="color:${assetColor};">$${entryAssetPrice.toLocaleString()}</td>
+      <td style="color:${assetColor};">$${curAssetPrice.toLocaleString()}</td>
+      <td>${assetTrend} <span style="color:${curAssetPrice < entryAssetPrice ? '#ff5252' : '#00e676'}">${assetTrendPct}%</span></td>
+      <td>$${betEntry.toFixed(2)}</td>
+      <td>$${betNow.toFixed(2)}</td>
+      <td>$${invested.toFixed(2)}</td>
+      <td>$${value.toFixed(2)}</td>
+      <td style="color:${pnlColor}; font-weight:bold;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+  
+  // Summary
+  const summaryDiv = document.getElementById('cryptoSummary');
+  const pnlPct = totalInvested > 0 ? (totalPnl / totalInvested * 100).toFixed(1) : 0;
+  summaryDiv.innerHTML = `
+    <b>CRYPTO TOTAL:</b> 
+    Invested: <span class="gold">$${totalInvested.toFixed(2)}</span> | 
+    Value: <span class="blue">$${totalValue.toFixed(2)}</span> | 
+    P/L: <span class="${totalPnl >= 0 ? 'green' : 'red'}" style="font-weight:bold;">${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPct}%)</span>
+  `;
+}
+
+async function loadData() {
+  try {
+    document.getElementById('cards').innerHTML = '<div class="loading">Loading...</div>';
+    
+    const [posResp, cash] = await Promise.all([
+      fetch(`https://data-api.polymarket.com/positions?user=${WALLET}&sizeThreshold=0`),
+      getUSDCBalance()
+    ]);
+    
+    const positions = await posResp.json();
+    
+    // Calculate stats
+    let totalVal = 0, totalCost = 0, winners = 0, losers = 0;
+    const categories = {};
+    
+    for (const p of positions) {
+      const val = parseFloat(p.currentValue || 0);
+      const cost = parseFloat(p.initialValue || 0);
+      const pnl = parseFloat(p.cashPnl || 0);
+      
+      totalVal += val;
+      totalCost += cost;
+      if (pnl > 0.01) winners++;
+      else if (pnl < -0.01) losers++;
+      
+      // Categorize
+      const t = (p.title || '').toLowerCase();
+      let cat = 'Other';
+      if (t.includes('bitcoin') || t.includes('btc')) cat = 'BTC';
+      else if (t.includes('ethereum') || t.includes('eth')) cat = 'ETH';
+      else if (t.includes('xrp')) cat = 'XRP';
+      else if (t.includes('solana') || t.includes('sol')) cat = 'SOL';
+      else if (t.includes('dota') || t.includes('counter-strike') || t.includes('league')) cat = 'Esport';
+      else if (t.match(/vs\.|thunder|spread|nuggets|timber|wild|pelicans|kings|cavaliers|raptors/)) cat = 'Sport';
+      else if (t.match(/temperature|weather/)) cat = 'Weather';
+      else if (t.match(/bank of|ecb|bartlett|democratic|republican/)) cat = 'Politics';
+      
+      if (!categories[cat]) categories[cat] = { value: 0, count: 0 };
+      categories[cat].value += val;
+      categories[cat].count++;
+    }
+    
+    const portfolioValue = totalVal + cash;
+    const realPnl = portfolioValue - TOTAL_DEPOSITED;
+    const pnlPct = (realPnl / TOTAL_DEPOSITED * 100).toFixed(1);
+    
+    // Render cards
+    document.getElementById('cards').innerHTML = `
+      <div class="card">
+        <div class="label">Portfolio</div>
+        <div class="value gold">$${portfolioValue.toFixed(2)}</div>
+        <div class="sub">deposited: $${TOTAL_DEPOSITED}</div>
+      </div>
+      <div class="card">
+        <div class="label">Cash</div>
+        <div class="value blue">$${cash.toFixed(2)}</div>
+        <div class="sub">USDC.e</div>
+      </div>
+      <div class="card">
+        <div class="label">Total P&L</div>
+        <div class="value ${pnlColor(realPnl)}">${pnlSign(realPnl)}</div>
+        <div class="sub">${pnlPct}%</div>
+      </div>
+      <div class="card">
+        <div class="label">Positions</div>
+        <div class="value">${positions.length}</div>
+        <div class="sub">🟢${winners} 🔴${losers}</div>
+      </div>
+      <div class="card">
+        <div class="label">Position Value</div>
+        <div class="value">$${totalVal.toFixed(2)}</div>
+        <div class="sub">cost: $${totalCost.toFixed(2)}</div>
+      </div>
+    `;
+    
+    // Render positions table
+    const sorted = [...positions].sort((a, b) => {
+      if (!a.endDate) return 1;
+      if (!b.endDate) return -1;
+      return new Date(a.endDate) - new Date(b.endDate);
+    });
+    
+    const tbody = document.getElementById('posBody');
+    tbody.innerHTML = sorted.map(p => {
+      const cd = formatCountdown(p.endDate);
+      const time = formatTime(p.endDate);
+      const val = parseFloat(p.currentValue || 0);
+      const pnl = parseFloat(p.cashPnl || 0);
+      const prob = parseFloat(p.curPrice || 0);
+      const probPct = (prob * 100).toFixed(0);
+      const probColor = prob > 0.7 ? '#00e676' : prob > 0.4 ? '#ffd740' : '#ff5252';
+      
+      return `<tr>
+        <td>
+          <span class="countdown ${cd.cls}">${cd.text}</span>
+          <span style="color:#666; font-size:0.85em; margin-left:4px;">${time}</span>
+        </td>
+        <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis;">${(p.title||'').slice(0,60)}</td>
+        <td><b>${p.outcome || ''}</b></td>
+        <td>${probPct}%</td>
+        <td>$${val.toFixed(2)}</td>
+        <td class="${pnlColor(pnl)}">${pnlSign(pnl)}</td>
+      </tr>`;
+    }).join('');
+    
+    // Render crypto section
+    await renderCryptoSection(positions);
+    
+    // Render charts
+    renderCategoryChart(categories);
+    renderWinLossChart(winners, losers, positions.length - winners - losers);
+    
+    document.getElementById('lastUpdate').textContent = 
+      `Updated: ${new Date().toLocaleTimeString('pl-PL', { timeZone: 'Europe/Warsaw' })}`;
+      
+  } catch (e) {
+    document.getElementById('cards').innerHTML = `<div class="loading" style="color:#ff5252;">Error: ${e.message}</div>`;
+  }
+}
+
+function renderCategoryChart(cats) {
+  const labels = Object.keys(cats);
+  const values = labels.map(k => cats[k].value);
+  const colors = { BTC: '#f7931a', ETH: '#627eea', XRP: '#00aae4', SOL: '#9945ff', Sport: '#ff6b35', Esport: '#e040fb', Weather: '#4fc3f7', Politics: '#ab47bc', Other: '#888' };
+  
+  const ctx = document.getElementById('categoryChart').getContext('2d');
+  if (categoryChart) categoryChart.destroy();
+  
+  categoryChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: labels.map(l => colors[l] || '#888'), borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#ccc', font: { size: 10 }, padding: 6 } }
+      }
+    }
+  });
+}
+
+function renderWinLossChart(wins, losses, neutral) {
+  const ctx = document.getElementById('winLossChart').getContext('2d');
+  if (winLossChart) winLossChart.destroy();
+  
+  winLossChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Winning', 'Losing', 'Neutral'],
+      datasets: [{ data: [wins, losses, neutral], backgroundColor: ['#00e676', '#ff5252', '#888'], borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#ccc', font: { size: 10 }, padding: 6 } }
+      }
+    }
+  });
+}
+
+// Load on start and auto-refresh
+loadData();
+setInterval(loadData, 60000);
 </script>
 </body>
 </html>

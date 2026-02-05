@@ -137,7 +137,8 @@
           <th class="sortable" data-sort="now">Now ↕</th>
           <th class="sortable" data-sort="invested">Cost ↕</th>
           <th class="sortable" data-sort="value">Value ↕</th>
-          <th class="sortable" data-sort="pnl">P&L ↕</th>
+          <th>Exp.Payout</th>
+          <th class="sortable" data-sort="pnl">Exp.P&L ↕</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -631,12 +632,13 @@ function applyFilterAndSort() {
     filtered = filtered.filter(b => b.status === currentFilter);
   }
   
-  // Calculate summary
+  // Calculate summary with expected P&L
   const summary = {
     count: filtered.length,
     totalInvested: 0,
     totalValue: 0,
-    totalPnl: 0,
+    totalExpectedPayout: 0,
+    totalExpectedPnl: 0,
     inPlus: 0,
     inMinus: 0,
     plusAmount: 0,
@@ -646,13 +648,20 @@ function applyFilterAndSort() {
   for (const b of filtered) {
     summary.totalInvested += b.invested;
     summary.totalValue += b.value;
-    summary.totalPnl += b.pnl;
-    if (b.pnl >= 0) {
+    
+    // Expected payout if wins
+    const expectedPayout = b.now >= 0.5 ? b.size : 0;
+    const expectedPnl = expectedPayout - b.invested;
+    
+    summary.totalExpectedPayout += expectedPayout;
+    summary.totalExpectedPnl += expectedPnl;
+    
+    if (expectedPnl >= 0) {
       summary.inPlus++;
-      summary.plusAmount += b.pnl;
+      summary.plusAmount += expectedPnl;
     } else {
       summary.inMinus++;
-      summary.minusAmount += b.pnl;
+      summary.minusAmount += expectedPnl;
     }
   }
   
@@ -660,9 +669,9 @@ function applyFilterAndSort() {
   document.getElementById('betsSummary').innerHTML = `
     <span style="margin-right: 16px;">📊 <b>${summary.count}</b> bets shown</span>
     <span style="margin-right: 16px;">💰 Invested: <b>$${summary.totalInvested.toFixed(2)}</b></span>
-    <span style="margin-right: 16px;">📈 Value: <b>$${summary.totalValue.toFixed(2)}</b></span>
-    <span style="margin-right: 16px; color: #00e676;">🟢 In Plus: <b>${summary.inPlus}</b> (+$${summary.plusAmount.toFixed(2)})</span>
-    <span style="color: #ff5252;">🔴 In Minus: <b>${summary.inMinus}</b> ($${summary.minusAmount.toFixed(2)})</span>
+    <span style="margin-right: 16px;">🎯 Exp.Payout: <b>$${summary.totalExpectedPayout.toFixed(2)}</b></span>
+    <span style="margin-right: 16px; color: #00e676;">🟢 Will Profit: <b>${summary.inPlus}</b> (+$${summary.plusAmount.toFixed(2)})</span>
+    <span style="color: #ff5252;">🔴 Will Lose: <b>${summary.inMinus}</b> ($${summary.minusAmount.toFixed(2)})</span>
   `;
   
   document.getElementById('betsFiltered').textContent = hideClaimed ? `(${allBets.length - filtered.length} claimed hidden)` : '';
@@ -701,15 +710,37 @@ function applyFilterAndSort() {
     const outcomeEmoji = b.outcome.toLowerCase() === 'up' || b.outcome.toLowerCase() === 'yes' ? '📈' : 
                          b.outcome.toLowerCase() === 'down' || b.outcome.toLowerCase() === 'no' ? '📉' : '';
     
-    let statusClass = `status-${b.status}`;
-    let statusText = b.status === 'winning' ? '🟢 WIN' : b.status === 'losing' ? '🔴 LOSS' : '🟡 PEND';
+    // Calculate expected payout (if wins: size * $1, if loses: $0)
+    const expectedPayout = b.now >= 0.5 ? b.size : 0;
+    const expectedPnl = expectedPayout - b.invested;
     
+    // New status logic: WINNING only if expected P&L > 0 OR price > 95%
+    let statusClass, statusText;
     if (b.claimed) {
       statusClass = 'status-resolved';
       statusText = '✅ CLAIMED';
+    } else if (b.now >= 0.95) {
+      statusClass = 'status-winning';
+      statusText = '🏆 SURE WIN';
+    } else if (b.now <= 0.05) {
+      statusClass = 'status-losing';
+      statusText = '💀 LOST';
+    } else if (expectedPnl > 0) {
+      statusClass = 'status-winning';
+      statusText = '🟢 WINNING';
+    } else if (expectedPnl < 0 && b.now >= 0.5) {
+      statusClass = 'status-pending';
+      statusText = '🟡 WIN -$';
+    } else if (b.now < 0.5) {
+      statusClass = 'status-losing';
+      statusText = '🔴 LOSING';
+    } else {
+      statusClass = 'status-pending';
+      statusText = '🟡 PEND';
     }
     
     const pnlColor = b.pnl >= 0 ? '#00e676' : '#ff5252';
+    const expectedPnlColor = expectedPnl >= 0 ? '#00e676' : '#ff5252';
     
     const marketLink = b.polyUrl 
       ? `<a href="${b.polyUrl}" target="_blank" style="color:#82b1ff; text-decoration:none;" title="${b.title}">${b.market} 🔗</a>`
@@ -722,8 +753,9 @@ function applyFilterAndSort() {
       <td style="color:#888;">${b.size.toFixed(1)}</td>
       <td>${(b.now * 100).toFixed(0)}¢</td>
       <td>$${b.invested.toFixed(2)}</td>
-      <td>$${b.value.toFixed(2)}</td>
-      <td style="color:${pnlColor}; font-weight:bold;">${b.pnl >= 0 ? '+' : ''}$${b.pnl.toFixed(2)}</td>
+      <td title="Current value">$${b.value.toFixed(2)}</td>
+      <td title="Expected payout if wins" style="color:#448aff;">$${expectedPayout.toFixed(2)}</td>
+      <td style="color:${expectedPnlColor}; font-weight:bold;" title="Expected P&L after resolution">${expectedPnl >= 0 ? '+' : ''}$${expectedPnl.toFixed(2)}</td>
       <td><span class="status-tag ${statusClass}">${statusText}</span></td>
     </tr>`;
   }).join('');

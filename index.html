@@ -113,13 +113,19 @@
 </div>
 
 <div class="panel" style="margin-bottom: 16px;">
-  <h3>🎰 All Bets — <span id="betsCount">0</span> total</h3>
-  <div style="margin-bottom: 8px; font-size: 0.8em;">
-    <button class="filter-btn active" data-filter="all">All</button>
-    <button class="filter-btn" data-filter="winning">🟢 Winning</button>
-    <button class="filter-btn" data-filter="losing">🔴 Losing</button>
-    <button class="filter-btn" data-filter="pending">🟡 Pending</button>
+  <h3>🎰 All Bets — <span id="betsCount">0</span> total <span id="betsFiltered" style="color:#888; font-size:0.8em;"></span></h3>
+  <div style="margin-bottom: 8px; font-size: 0.8em; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+    <div>
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="winning">🟢 Winning</button>
+      <button class="filter-btn" data-filter="losing">🔴 Losing</button>
+      <button class="filter-btn" data-filter="pending">🟡 Pending</button>
+    </div>
+    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; color: #888;">
+      <input type="checkbox" id="hideClaimed" style="cursor: pointer;"> Hide claimed
+    </label>
   </div>
+  <div id="betsSummary" style="margin-bottom: 8px; padding: 8px; background: #1a1a2e; border-radius: 6px; font-size: 0.85em;"></div>
   <div class="pos-table" style="max-height: 400px;">
     <table id="betsTable">
       <thead>
@@ -523,12 +529,14 @@ function renderWinLossChart(wins, losses, neutral) {
 
 // === BETS TABLE WITH SORTING ===
 let allBets = [];
+let claimedConditions = new Set();
 let currentSort = { col: 'time', dir: 'desc' };
 let currentFilter = 'all';
+let hideClaimed = false;
 
 async function fetchActivity() {
   try {
-    const resp = await fetch(`https://data-api.polymarket.com/activity?user=${WALLET}&limit=200`);
+    const resp = await fetch(`https://data-api.polymarket.com/activity?user=${WALLET}&limit=500`);
     return await resp.json();
   } catch (e) {
     return [];
@@ -538,6 +546,12 @@ async function fetchActivity() {
 async function renderBetsTable(positions) {
   // Fetch real activity data with timestamps
   const activity = await fetchActivity();
+  
+  // Track claimed/redeemed positions
+  claimedConditions = new Set();
+  activity.filter(a => a.type === 'REDEEM').forEach(a => {
+    claimedConditions.add(a.conditionId);
+  });
   
   // Group activity by conditionId to get entry times
   const entryTimes = {};
@@ -576,6 +590,9 @@ async function renderBetsTable(positions) {
         ? `https://polymarket.com/event/${a.eventSlug}`
         : null;
     
+    // Check if this position was claimed/redeemed
+    const claimed = claimedConditions.has(a.conditionId);
+    
     return {
       timestamp,
       entryTime: new Date(timestamp),
@@ -591,7 +608,9 @@ async function renderBetsTable(positions) {
       pnl,
       status,
       txHash: a.transactionHash,
-      polyUrl
+      polyUrl,
+      claimed,
+      conditionId: a.conditionId
     };
   });
   
@@ -602,10 +621,51 @@ async function renderBetsTable(positions) {
 function applyFilterAndSort() {
   let filtered = allBets;
   
+  // Apply hide claimed
+  if (hideClaimed) {
+    filtered = filtered.filter(b => !b.claimed);
+  }
+  
   // Apply filter
   if (currentFilter !== 'all') {
-    filtered = allBets.filter(b => b.status === currentFilter);
+    filtered = filtered.filter(b => b.status === currentFilter);
   }
+  
+  // Calculate summary
+  const summary = {
+    count: filtered.length,
+    totalInvested: 0,
+    totalValue: 0,
+    totalPnl: 0,
+    inPlus: 0,
+    inMinus: 0,
+    plusAmount: 0,
+    minusAmount: 0
+  };
+  
+  for (const b of filtered) {
+    summary.totalInvested += b.invested;
+    summary.totalValue += b.value;
+    summary.totalPnl += b.pnl;
+    if (b.pnl >= 0) {
+      summary.inPlus++;
+      summary.plusAmount += b.pnl;
+    } else {
+      summary.inMinus++;
+      summary.minusAmount += b.pnl;
+    }
+  }
+  
+  // Render summary
+  document.getElementById('betsSummary').innerHTML = `
+    <span style="margin-right: 16px;">📊 <b>${summary.count}</b> bets shown</span>
+    <span style="margin-right: 16px;">💰 Invested: <b>$${summary.totalInvested.toFixed(2)}</b></span>
+    <span style="margin-right: 16px;">📈 Value: <b>$${summary.totalValue.toFixed(2)}</b></span>
+    <span style="margin-right: 16px; color: #00e676;">🟢 In Plus: <b>${summary.inPlus}</b> (+$${summary.plusAmount.toFixed(2)})</span>
+    <span style="color: #ff5252;">🔴 In Minus: <b>${summary.inMinus}</b> ($${summary.minusAmount.toFixed(2)})</span>
+  `;
+  
+  document.getElementById('betsFiltered').textContent = hideClaimed ? `(${allBets.length - filtered.length} claimed hidden)` : '';
   
   // Apply sort
   filtered.sort((a, b) => {
@@ -641,8 +701,13 @@ function applyFilterAndSort() {
     const outcomeEmoji = b.outcome.toLowerCase() === 'up' || b.outcome.toLowerCase() === 'yes' ? '📈' : 
                          b.outcome.toLowerCase() === 'down' || b.outcome.toLowerCase() === 'no' ? '📉' : '';
     
-    const statusClass = `status-${b.status}`;
-    const statusText = b.status === 'winning' ? '🟢 WIN' : b.status === 'losing' ? '🔴 LOSS' : '🟡 PEND';
+    let statusClass = `status-${b.status}`;
+    let statusText = b.status === 'winning' ? '🟢 WIN' : b.status === 'losing' ? '🔴 LOSS' : '🟡 PEND';
+    
+    if (b.claimed) {
+      statusClass = 'status-resolved';
+      statusText = '✅ CLAIMED';
+    }
     
     const pnlColor = b.pnl >= 0 ? '#00e676' : '#ff5252';
     
@@ -694,6 +759,12 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
     currentFilter = btn.dataset.filter;
     applyFilterAndSort();
   });
+});
+
+// Hide claimed checkbox
+document.getElementById('hideClaimed').addEventListener('change', (e) => {
+  hideClaimed = e.target.checked;
+  applyFilterAndSort();
 });
 
 // Patch loadData to also render bets table

@@ -50,7 +50,8 @@
 <body>
 <div id="authScreen" class="auth-screen">
   <h1>🐝 ATC Dashboard</h1>
-  <input type="password" id="passInput" placeholder="Enter password" onkeypress="if(event.key==='Enter')checkPass()">
+  <input type="password" id="passInput" placeholder="Enter password" onkeypress="if(event.key==='Enter')checkPass()" style="margin-bottom:10px;">
+  <button onclick="checkPass()" style="background:#ffd700;color:#000;border:none;padding:12px 30px;border-radius:8px;font-size:16px;cursor:pointer;font-weight:bold;">🔓 Login</button>
   <div id="authError" class="error hidden">Wrong password</div>
   <div class="hint">🔒 Protected</div>
 </div>

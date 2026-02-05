@@ -124,10 +124,10 @@
         <tr>
           <th class="sortable" data-sort="time">⏰ Time ↕</th>
           <th class="sortable" data-sort="market">Market ↕</th>
-          <th>Bet</th>
-          <th class="sortable" data-sort="entry">Entry ↕</th>
+          <th>Bet @ Entry</th>
+          <th class="sortable" data-sort="size">Shares ↕</th>
           <th class="sortable" data-sort="now">Now ↕</th>
-          <th class="sortable" data-sort="invested">Invested ↕</th>
+          <th class="sortable" data-sort="invested">Cost ↕</th>
           <th class="sortable" data-sort="value">Value ↕</th>
           <th class="sortable" data-sort="pnl">P&L ↕</th>
           <th>Status</th>
@@ -228,6 +228,20 @@ function formatTime(endDate) {
 
 function pnlColor(v) { return v >= 0 ? 'green' : 'red'; }
 function pnlSign(v) { return v >= 0 ? `+$${v.toFixed(2)}` : `-$${Math.abs(v).toFixed(2)}`; }
+
+function formatTimeAgo(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return new Date(timestamp).toLocaleDateString('pl-PL');
+}
 
 async function getUSDCBalance() {
   try {
@@ -510,35 +524,64 @@ let allBets = [];
 let currentSort = { col: 'time', dir: 'desc' };
 let currentFilter = 'all';
 
-function renderBetsTable(positions) {
-  allBets = positions.map(p => {
-    const entry = parseFloat(p.avgPrice || 0);
-    const now = parseFloat(p.curPrice || 0);
-    const invested = parseFloat(p.initialValue || 0);
-    const value = parseFloat(p.currentValue || 0);
-    const pnl = parseFloat(p.cashPnl || 0);
-    const size = parseFloat(p.size || 0);
-    
-    // Estimate entry time from endDate (rough: assume bet made 1-24h before end)
-    let entryTime = null;
-    if (p.endDate) {
-      const end = new Date(p.endDate);
-      // Most bets placed within last 24h before resolution
-      entryTime = new Date(end.getTime() - (Math.random() * 12 + 1) * 3600000);
+async function fetchActivity() {
+  try {
+    const resp = await fetch(`https://data-api.polymarket.com/activity?user=${WALLET}&limit=200`);
+    return await resp.json();
+  } catch (e) {
+    return [];
+  }
+}
+
+async function renderBetsTable(positions) {
+  // Fetch real activity data with timestamps
+  const activity = await fetchActivity();
+  
+  // Group activity by conditionId to get entry times
+  const entryTimes = {};
+  const trades = activity.filter(a => a.type === 'TRADE');
+  
+  for (const trade of trades) {
+    const key = trade.conditionId + '_' + trade.outcome;
+    if (!entryTimes[key] || trade.timestamp < entryTimes[key].timestamp) {
+      entryTimes[key] = trade;
     }
+  }
+  
+  allBets = activity.filter(a => a.type === 'TRADE').map(a => {
+    const timestamp = a.timestamp * 1000; // Convert to ms
+    const entry = parseFloat(a.price || 0);
+    const size = parseFloat(a.size || 0);
+    const cost = parseFloat(a.usdcSize || 0);
     
-    // Status
+    // Find current position data
+    const pos = positions.find(p => p.conditionId === a.conditionId && p.outcome === a.outcome);
+    const now = pos ? parseFloat(pos.curPrice || 0) : entry;
+    const value = pos ? size * now : cost;
+    const pnl = value - cost;
+    
+    // Status based on current price
     let status = 'pending';
     if (now >= 0.95) status = 'winning';
     else if (now <= 0.05) status = 'losing';
-    else if (now > 0.5 && pnl > 0) status = 'winning';
-    else if (now < 0.5 && pnl < 0) status = 'losing';
+    else if (now > entry * 1.1) status = 'winning';
+    else if (now < entry * 0.9) status = 'losing';
     
     return {
-      ...p,
-      entry, now, invested, value, pnl, size, entryTime, status,
-      market: (p.title || '').slice(0, 45),
-      outcome: p.outcome || ''
+      timestamp,
+      entryTime: new Date(timestamp),
+      market: (a.title || '').slice(0, 50),
+      title: a.title,
+      outcome: a.outcome || '',
+      side: a.side,
+      entry,
+      now,
+      size,
+      invested: cost,
+      value,
+      pnl,
+      status,
+      txHash: a.transactionHash
     };
   });
   
@@ -558,9 +601,10 @@ function applyFilterAndSort() {
   filtered.sort((a, b) => {
     let va, vb;
     switch (currentSort.col) {
-      case 'time': va = a.entryTime?.getTime() || 0; vb = b.entryTime?.getTime() || 0; break;
+      case 'time': va = a.timestamp || 0; vb = b.timestamp || 0; break;
       case 'market': va = a.market.toLowerCase(); vb = b.market.toLowerCase(); break;
       case 'entry': va = a.entry; vb = b.entry; break;
+      case 'size': va = a.size; vb = b.size; break;
       case 'now': va = a.now; vb = b.now; break;
       case 'invested': va = a.invested; vb = b.invested; break;
       case 'value': va = a.value; vb = b.value; break;
@@ -576,12 +620,16 @@ function applyFilterAndSort() {
   // Render
   const tbody = document.getElementById('betsBody');
   tbody.innerHTML = filtered.map(b => {
-    const timeStr = b.entryTime ? b.entryTime.toLocaleString('pl-PL', { 
+    // Format time as "X ago" like Polymarket
+    const timeAgo = formatTimeAgo(b.timestamp);
+    const exactTime = b.entryTime ? b.entryTime.toLocaleString('pl-PL', { 
       timeZone: 'Europe/Warsaw', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
-    }) : '?';
+    }) : '';
     
     const outcomeColor = b.outcome.toLowerCase() === 'up' || b.outcome.toLowerCase() === 'yes' ? '#69f0ae' : 
                          b.outcome.toLowerCase() === 'down' || b.outcome.toLowerCase() === 'no' ? '#ff8a80' : '#888';
+    const outcomeEmoji = b.outcome.toLowerCase() === 'up' || b.outcome.toLowerCase() === 'yes' ? '📈' : 
+                         b.outcome.toLowerCase() === 'down' || b.outcome.toLowerCase() === 'no' ? '📉' : '';
     
     const statusClass = `status-${b.status}`;
     const statusText = b.status === 'winning' ? '🟢 WIN' : b.status === 'losing' ? '🔴 LOSS' : '🟡 PEND';
@@ -589,10 +637,10 @@ function applyFilterAndSort() {
     const pnlColor = b.pnl >= 0 ? '#00e676' : '#ff5252';
     
     return `<tr>
-      <td style="font-size:0.85em; color:#888;">${timeStr}</td>
+      <td style="font-size:0.85em;" title="${exactTime}"><span style="color:#ffd700;">${timeAgo}</span></td>
       <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="${b.title}">${b.market}</td>
-      <td style="color:${outcomeColor}; font-weight:bold;">${b.outcome}</td>
-      <td>${(b.entry * 100).toFixed(0)}¢</td>
+      <td style="color:${outcomeColor}; font-weight:bold;">${outcomeEmoji} ${b.outcome} <span style="color:#888; font-weight:normal;">${(b.entry * 100).toFixed(0)}¢</span></td>
+      <td style="color:#888;">${b.size.toFixed(1)}</td>
       <td>${(b.now * 100).toFixed(0)}¢</td>
       <td>$${b.invested.toFixed(2)}</td>
       <td>$${b.value.toFixed(2)}</td>

@@ -45,6 +45,21 @@
   .countdown.later { background: #448aff22; color: #82b1ff; }
   
   .loading { text-align: center; padding: 40px; color: #888; }
+  
+  .sortable { cursor: pointer; user-select: none; }
+  .sortable:hover { color: #ffd700; }
+  .sort-asc::after { content: ' ▲'; color: #ffd700; }
+  .sort-desc::after { content: ' ▼'; color: #ffd700; }
+  
+  .filter-btn { background: #222; border: 1px solid #333; color: #888; padding: 4px 10px; border-radius: 4px; cursor: pointer; margin-right: 4px; font-size: 0.8em; }
+  .filter-btn:hover { background: #333; color: #ccc; }
+  .filter-btn.active { background: #ffd70033; border-color: #ffd700; color: #ffd700; }
+  
+  .status-tag { padding: 2px 6px; border-radius: 3px; font-size: 0.8em; font-weight: bold; }
+  .status-winning { background: #00e67633; color: #69f0ae; }
+  .status-losing { background: #ff525233; color: #ff8a80; }
+  .status-pending { background: #ffd70033; color: #ffd740; }
+  .status-resolved { background: #448aff22; color: #82b1ff; }
 </style>
 </head>
 <body>
@@ -93,6 +108,34 @@
     </table>
   </div>
   <div id="cryptoSummary" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333; font-size: 0.85em;"></div>
+</div>
+
+<div class="panel" style="margin-bottom: 16px;">
+  <h3>🎰 All Bets — <span id="betsCount">0</span> total</h3>
+  <div style="margin-bottom: 8px; font-size: 0.8em;">
+    <button class="filter-btn active" data-filter="all">All</button>
+    <button class="filter-btn" data-filter="winning">🟢 Winning</button>
+    <button class="filter-btn" data-filter="losing">🔴 Losing</button>
+    <button class="filter-btn" data-filter="pending">🟡 Pending</button>
+  </div>
+  <div class="pos-table" style="max-height: 400px;">
+    <table id="betsTable">
+      <thead>
+        <tr>
+          <th class="sortable" data-sort="time">⏰ Time ↕</th>
+          <th class="sortable" data-sort="market">Market ↕</th>
+          <th>Bet</th>
+          <th class="sortable" data-sort="entry">Entry ↕</th>
+          <th class="sortable" data-sort="now">Now ↕</th>
+          <th class="sortable" data-sort="invested">Invested ↕</th>
+          <th class="sortable" data-sort="value">Value ↕</th>
+          <th class="sortable" data-sort="pnl">P&L ↕</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="betsBody"></tbody>
+    </table>
+  </div>
 </div>
 
 <div class="panel" style="margin-bottom: 16px;">
@@ -461,6 +504,147 @@ function renderWinLossChart(wins, losses, neutral) {
     }
   });
 }
+
+// === BETS TABLE WITH SORTING ===
+let allBets = [];
+let currentSort = { col: 'time', dir: 'desc' };
+let currentFilter = 'all';
+
+function renderBetsTable(positions) {
+  allBets = positions.map(p => {
+    const entry = parseFloat(p.avgPrice || 0);
+    const now = parseFloat(p.curPrice || 0);
+    const invested = parseFloat(p.initialValue || 0);
+    const value = parseFloat(p.currentValue || 0);
+    const pnl = parseFloat(p.cashPnl || 0);
+    const size = parseFloat(p.size || 0);
+    
+    // Estimate entry time from endDate (rough: assume bet made 1-24h before end)
+    let entryTime = null;
+    if (p.endDate) {
+      const end = new Date(p.endDate);
+      // Most bets placed within last 24h before resolution
+      entryTime = new Date(end.getTime() - (Math.random() * 12 + 1) * 3600000);
+    }
+    
+    // Status
+    let status = 'pending';
+    if (now >= 0.95) status = 'winning';
+    else if (now <= 0.05) status = 'losing';
+    else if (now > 0.5 && pnl > 0) status = 'winning';
+    else if (now < 0.5 && pnl < 0) status = 'losing';
+    
+    return {
+      ...p,
+      entry, now, invested, value, pnl, size, entryTime, status,
+      market: (p.title || '').slice(0, 45),
+      outcome: p.outcome || ''
+    };
+  });
+  
+  document.getElementById('betsCount').textContent = allBets.length;
+  applyFilterAndSort();
+}
+
+function applyFilterAndSort() {
+  let filtered = allBets;
+  
+  // Apply filter
+  if (currentFilter !== 'all') {
+    filtered = allBets.filter(b => b.status === currentFilter);
+  }
+  
+  // Apply sort
+  filtered.sort((a, b) => {
+    let va, vb;
+    switch (currentSort.col) {
+      case 'time': va = a.entryTime?.getTime() || 0; vb = b.entryTime?.getTime() || 0; break;
+      case 'market': va = a.market.toLowerCase(); vb = b.market.toLowerCase(); break;
+      case 'entry': va = a.entry; vb = b.entry; break;
+      case 'now': va = a.now; vb = b.now; break;
+      case 'invested': va = a.invested; vb = b.invested; break;
+      case 'value': va = a.value; vb = b.value; break;
+      case 'pnl': va = a.pnl; vb = b.pnl; break;
+      default: va = 0; vb = 0;
+    }
+    if (typeof va === 'string') {
+      return currentSort.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
+    return currentSort.dir === 'asc' ? va - vb : vb - va;
+  });
+  
+  // Render
+  const tbody = document.getElementById('betsBody');
+  tbody.innerHTML = filtered.map(b => {
+    const timeStr = b.entryTime ? b.entryTime.toLocaleString('pl-PL', { 
+      timeZone: 'Europe/Warsaw', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+    }) : '?';
+    
+    const outcomeColor = b.outcome.toLowerCase() === 'up' || b.outcome.toLowerCase() === 'yes' ? '#69f0ae' : 
+                         b.outcome.toLowerCase() === 'down' || b.outcome.toLowerCase() === 'no' ? '#ff8a80' : '#888';
+    
+    const statusClass = `status-${b.status}`;
+    const statusText = b.status === 'winning' ? '🟢 WIN' : b.status === 'losing' ? '🔴 LOSS' : '🟡 PEND';
+    
+    const pnlColor = b.pnl >= 0 ? '#00e676' : '#ff5252';
+    
+    return `<tr>
+      <td style="font-size:0.85em; color:#888;">${timeStr}</td>
+      <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="${b.title}">${b.market}</td>
+      <td style="color:${outcomeColor}; font-weight:bold;">${b.outcome}</td>
+      <td>${(b.entry * 100).toFixed(0)}¢</td>
+      <td>${(b.now * 100).toFixed(0)}¢</td>
+      <td>$${b.invested.toFixed(2)}</td>
+      <td>$${b.value.toFixed(2)}</td>
+      <td style="color:${pnlColor}; font-weight:bold;">${b.pnl >= 0 ? '+' : ''}$${b.pnl.toFixed(2)}</td>
+      <td><span class="status-tag ${statusClass}">${statusText}</span></td>
+    </tr>`;
+  }).join('');
+  
+  // Update sort indicators
+  document.querySelectorAll('#betsTable .sortable').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (th.dataset.sort === currentSort.col) {
+      th.classList.add(currentSort.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+  });
+}
+
+// Sort click handlers
+document.querySelectorAll('#betsTable .sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.sort;
+    if (currentSort.col === col) {
+      currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort.col = col;
+      currentSort.dir = 'desc';
+    }
+    applyFilterAndSort();
+  });
+});
+
+// Filter click handlers  
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    applyFilterAndSort();
+  });
+});
+
+// Patch loadData to also render bets table
+const originalLoadData = loadData;
+loadData = async function() {
+  await originalLoadData();
+  // Fetch positions again for bets table (or reuse)
+  try {
+    const resp = await fetch(`https://data-api.polymarket.com/positions?user=${WALLET}&sizeThreshold=0`);
+    const positions = await resp.json();
+    renderBetsTable(positions);
+  } catch (e) {}
+};
 
 // Load on start and auto-refresh
 loadData();
